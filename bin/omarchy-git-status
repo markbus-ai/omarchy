@@ -1,0 +1,80 @@
+#!/bin/bash
+
+# omarchy:summary=Print the git state of a working directory
+# omarchy:args=[cwd]
+# omarchy:hidden=true
+
+# Stable, parseable output:
+#   line 1: repo top-level path (empty when cwd is not inside a git repo)
+#   line 2: branch name, or "detached <short sha>"
+#   line 3: ahead <n> behind <m>
+#   line 4: staged <n> modified <n> untracked <n> conflict <n>
+# Always exits 0: this is a query, not an error channel.
+
+cwd="${1:-$(omarchy-cmd-terminal-cwd)}"
+
+top=""
+if [[ -d $cwd ]]; then
+  top=$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null) || top=""
+fi
+
+if [[ -z $top ]]; then
+  printf '\n'
+  exit 0
+fi
+
+printf '%s\n' "$top"
+
+branch=$(git -C "$top" symbolic-ref -q --short HEAD 2>/dev/null)
+if [[ -n $branch ]]; then
+  printf '%s\n' "$branch"
+else
+  sha=$(git -C "$top" rev-parse --short HEAD 2>/dev/null)
+  printf 'detached %s\n' "${sha:-unknown}"
+fi
+
+status=$(git -C "$top" status --porcelain=v1 -b 2>/dev/null) || status=""
+
+# ## main...origin/main [ahead 2, behind 1]  (or [ahead 3], [behind 2], [gone])
+branch_line=$(printf '%s\n' "$status" | sed -n '1s/^## //p')
+ahead=0
+behind=0
+if [[ $branch_line == *"[ahead "* ]]; then
+  ahead=$(sed -n 's/.*\[ahead \([0-9][0-9]*\).*/\1/p' <<<"$branch_line")
+fi
+if [[ $branch_line == *"behind "* ]]; then
+  behind=$(sed -n 's/.*behind \([0-9][0-9]*\).*/\1/p' <<<"$branch_line")
+fi
+printf 'ahead %d behind %d\n' "$ahead" "$behind"
+
+staged=0
+modified=0
+untracked=0
+conflict=0
+while IFS= read -r line; do
+  [[ -z $line ]] && continue
+  [[ $line == \#\#* ]] && continue
+
+  x=${line:0:1}
+  y=${line:1:1}
+
+  # ?? stays untracked; the index column U and the unmerged pairs (UU, AA,
+  # DD, AU, UA, DU, UD) are conflicts rather than ordinary staged edits.
+  if [[ $x == "?" ]]; then
+    (( untracked += 1 ))
+    continue
+  fi
+  if [[ $x == "U" || $y == "U" || ( $x == $y && ( $x == "A" || $x == "D" ) ) ]]; then
+    (( conflict += 1 ))
+    continue
+  fi
+  if [[ $x != " " ]]; then
+    (( staged += 1 ))
+  fi
+  if [[ $y != " " ]]; then
+    (( modified += 1 ))
+  fi
+done <<<"$status"
+
+printf 'staged %d modified %d untracked %d conflict %d\n' \
+  "$staged" "$modified" "$untracked" "$conflict"
