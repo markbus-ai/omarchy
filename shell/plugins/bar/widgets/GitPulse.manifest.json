@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "id": "omarchy.git-pulse",
+  "name": "Git Pulse",
+  "version": "1.0.0",
+  "author": "Omarchy",
+  "description": "Branch and dirty counts of the focused terminal's git repository",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "GitPulse.qml"
+  },
+  "barWidget": {
+    "displayName": "Git Pulse",
+    "description": "Shows the branch plus staged/modified/untracked counts of the git repo in the focused terminal's working directory. Hidden outside git repositories.",
+    "category": "Status",
+    "allowMultiple": false,
+    "defaultSection": "left",
+    "schema": [
+      {
+        "key": "showUntracked",
+        "type": "boolean",
+        "label": "Show untracked",
+        "description": "Append ?N for untracked files to the label. Off by default to keep the pill slim.",
+        "defaultValue": false
+      },
+      {
+        "key": "showAheadBehind",
+        "type": "boolean",
+        "label": "Show ahead/behind",
+        "description": "Append up/down arrows with commits ahead of and behind the upstream branch.",
+        "defaultValue": false
+      }
+    ]
+  },
+  "omarchy": {
+    "clonePaths": [
+      {
+        "source": "GitPulseModel.js",
+        "target": "GitPulseModel.js"
+      }
+    ]
+  }
+}
