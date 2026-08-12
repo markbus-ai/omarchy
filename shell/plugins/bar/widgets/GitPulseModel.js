@@ -123,6 +123,37 @@ function countsSummary(state) {
   return groups.join(" \u00b7 ")
 }
 
+// Popup counters as display entries, one per non-zero group. The QML side
+// maps `kind` to a theme color role, keeping color decisions out of JS.
+function countEntries(state) {
+  if (!state || !state.isRepo) return []
+  var entries = []
+  if (state.staged > 0) entries.push({ kind: "staged", count: state.staged })
+  if (state.modified > 0) entries.push({ kind: "modified", count: state.modified })
+  if (state.untracked > 0) entries.push({ kind: "untracked", count: state.untracked })
+  if (state.conflict > 0) entries.push({ kind: "conflict", count: state.conflict })
+  return entries
+}
+
+// What the "copy" action puts on the clipboard: the branch name, or the
+// detached short sha.
+function copyValue(state) {
+  if (!state || !state.isRepo) return ""
+  if (state.detached) return state.sha || ""
+  return state.branch || ""
+}
+
+// Normalize a git remote URL to a browsable https://github.com/org/repo URL,
+// or "" when the remote is not GitHub (gitlab, bitbucket, a local path, ...).
+function githubUrlFromRemote(remote) {
+  remote = String(remote == null ? "" : remote).trim()
+  if (remote === "") return ""
+
+  var match = /^(?:git@github\.com:|https?:\/\/github\.com\/)([^/]+\/[^/\s]+?)(?:\.git)?\/?$/.exec(remote)
+  if (!match) return ""
+  return "https://github.com/" + match[1]
+}
+
 function tooltipText(state) {
   if (!state || !state.isRepo) return ""
   var text = state.topLevel
@@ -174,6 +205,9 @@ if (typeof module !== "undefined") {
     branchLabel: branchLabel,
     labelText: labelText,
     countsSummary: countsSummary,
+    countEntries: countEntries,
+    copyValue: copyValue,
+    githubUrlFromRemote: githubUrlFromRemote,
     tooltipText: tooltipText,
     cacheLookup: cacheLookup,
     cacheUpsert: cacheUpsert

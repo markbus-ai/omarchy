@@ -26,6 +26,8 @@ BarWidget {
   property bool rerunPending: false
   property bool popupOpen: false
   property string shortStatusText: ""
+  property string githubUrl: ""
+  readonly property var chips: root.state ? GitPulse.countEntries(root.state) : []
 
   readonly property bool showState: state !== null && state.isRepo === true
   readonly property string label: state ? GitPulse.labelText(state, root.showUntracked, root.showAheadBehind) : ""
@@ -107,14 +109,51 @@ BarWidget {
   function openPopup() {
     root.popupOpen = true
     root.shortStatusText = ""
+    root.githubUrl = ""
     if (root.state && !statusShortProc.running) {
       statusShortProc.command = ["git", "-C", root.state.topLevel, "status", "--short"]
       statusShortProc.running = true
+    }
+    if (root.state && !remoteProc.running) {
+      remoteProc.command = ["git", "-C", root.state.topLevel, "remote", "get-url", "origin"]
+      remoteProc.running = true
     }
   }
 
   function close() {
     root.popupOpen = false
+  }
+
+  // Shell-safe single-quote wrapping for values passed to bar.run. The
+  // classic '"'"' escaping keeps embedded single quotes from breaking out.
+  function shellQuote(value) {
+    return "'" + String(value).replace(/'/g, "'\\''") + "'"
+  }
+
+  // Semantic color for a count chip; monochrome canvas with urgent red only
+  // where it means something (the repo's Color roles: accent/urgent/muted).
+  function chipColor(kind) {
+    if (kind === "conflict") return Color.urgent
+    if (kind === "untracked") return Color.muted
+    if (kind === "staged") return Color.accent
+    return Color.foreground
+  }
+
+  function actionCopy() {
+    var value = GitPulse.copyValue(root.state)
+    if (value === "") return
+    root.bar.run("wl-copy " + root.shellQuote(value))
+    root.bar.run("omarchy-notification-send " + root.shellQuote("Branch " + value + " copied to clipboard"))
+  }
+
+  function actionOpenTerminal() {
+    if (!root.state) return
+    root.bar.run("setsid uwsm-app -- xdg-terminal-exec --dir=" + root.shellQuote(root.state.topLevel))
+  }
+
+  function actionOpenGithub() {
+    if (root.githubUrl === "") return
+    root.bar.run("omarchy-launch-webapp " + root.shellQuote(root.githubUrl))
   }
 
   Timer {
@@ -148,6 +187,14 @@ BarWidget {
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: root.shortStatusText = String(text).trim()
+    }
+  }
+
+  Process {
+    id: remoteProc
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.githubUrl = GitPulse.githubUrlFromRemote(String(text).trim())
     }
   }
 
@@ -197,12 +244,21 @@ BarWidget {
       anchors.fill: parent
       spacing: Style.space(10)
 
-      Column {
+      Row {
         width: parent.width
-        spacing: Style.space(2)
+        spacing: Style.space(6)
 
         Text {
-          width: parent.width
+          anchors.verticalCenter: parent.verticalCenter
+          text: GitPulse.GIT_GLYPH
+          color: Color.accent
+          font.family: root.bar ? root.bar.fontFamily : Style.font.family
+          font.pixelSize: Style.font.subtitle
+        }
+
+        Text {
+          width: parent.width - Style.space(6) - implicitWidth
+          anchors.verticalCenter: parent.verticalCenter
           text: root.state ? GitPulse.branchLabel(root.state) : ""
           color: root.bar ? root.bar.foreground : Color.foreground
           font.family: root.bar ? root.bar.fontFamily : Style.font.family
@@ -210,24 +266,46 @@ BarWidget {
           font.bold: true
           elide: Text.ElideRight
         }
-
-        Text {
-          width: parent.width
-          text: root.state ? root.state.topLevel : ""
-          color: root.bar ? Qt.darker(root.bar.foreground, 1.3) : Color.foreground
-          font.family: root.bar ? root.bar.fontFamily : Style.font.family
-          font.pixelSize: Style.font.caption
-          elide: Text.ElideRight
-        }
       }
 
       Text {
         width: parent.width
-        text: root.state ? GitPulse.countsSummary(root.state) : ""
-        color: root.bar ? root.bar.foreground : Color.foreground
+        text: root.state ? root.state.topLevel : ""
+        color: root.bar ? Qt.darker(root.bar.foreground, 1.3) : Color.foreground
         font.family: root.bar ? root.bar.fontFamily : Style.font.family
         font.pixelSize: Style.font.caption
-        visible: text !== ""
+        elide: Text.ElideRight
+      }
+
+      Row {
+        width: parent.width
+        spacing: Style.space(6)
+        visible: root.chips.length > 0
+
+        Repeater {
+          model: root.chips
+
+          delegate: Rectangle {
+            required property var modelData
+
+            radius: Math.max(Style.space(3), 4)
+            color: {
+              var c = root.chipColor(modelData.kind)
+              return Qt.rgba(c.r, c.g, c.b, 0.16)
+            }
+            height: chipText.implicitHeight + Style.space(6)
+            width: chipText.implicitWidth + Style.space(14)
+
+            Text {
+              id: chipText
+              anchors.centerIn: parent
+              text: modelData.count + " " + modelData.kind
+              color: root.chipColor(modelData.kind)
+              font.family: root.bar ? root.bar.fontFamily : Style.font.family
+              font.pixelSize: Style.font.caption
+            }
+          }
+        }
       }
 
       PanelSeparator {
@@ -252,10 +330,40 @@ BarWidget {
           color: root.bar ? Qt.darker(root.bar.foreground, 1.2) : Color.foreground
           font.family: root.bar ? root.bar.fontFamily : Style.font.family
           font.pixelSize: Style.font.caption
+          lineHeight: Style.space(18)
           wrapMode: Text.NoWrap
         }
 
         ScrollBar.vertical: ScrollBar { policy: statusLines.implicitHeight > statusList.height ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff }
+      }
+
+      PanelSeparator {
+        foreground: root.bar ? root.bar.foreground : Color.foreground
+      }
+
+      Row {
+        width: parent.width
+        layoutDirection: Qt.RightToLeft
+        spacing: Style.space(6)
+
+        PanelActionButton {
+          iconText: "\uf0c5"
+          tooltipText: "Copy branch"
+          onClicked: root.actionCopy()
+        }
+
+        PanelActionButton {
+          iconText: "\ue795"
+          tooltipText: "Open terminal in repository"
+          onClicked: root.actionOpenTerminal()
+        }
+
+        PanelActionButton {
+          iconText: "\ue709"
+          tooltipText: "Open on GitHub"
+          visible: root.githubUrl !== ""
+          onClicked: root.actionOpenGithub()
+        }
       }
     }
   }

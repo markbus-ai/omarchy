@@ -275,3 +275,38 @@ assertEqual(m.parseBranch('detached deadbeef').sha, 'deadbeef', 'parseBranch det
 assertEqual(m.parsePosition('ahead 4 behind 7').ahead, 4, 'parsePosition ahead')
 assertEqual(m.parseCounts('staged 5 modified 0 untracked 2 conflict 0').untracked, 2, 'parseCounts untracked')
 JS
+
+run_node_test <<'JS'
+const m = requireFromRoot('shell/plugins/bar/widgets/GitPulseModel.js')
+
+const st = m.parseStatus('/repo\nmain\nahead 0 behind 0\nstaged 2 modified 3 untracked 4 conflict 1\n')
+const entries = m.countEntries(st)
+assertEqual(entries.length, 4, 'countEntries reports every non-zero group')
+assertEqual(entries[0].kind, 'staged', 'countEntries first entry staged')
+assertEqual(entries[0].count, 2, 'countEntries staged count')
+assertEqual(entries[3].kind, 'conflict', 'countEntries conflict last')
+assertEqual(m.countEntries(m.parseStatus('')).length, 0, 'countEntries empty outside a repo')
+assertEqual(
+  m.countEntries(m.parseStatus('/r\nmain\nahead 0 behind 0\nstaged 0 modified 0 untracked 0 conflict 0\n')).length,
+  0,
+  'countEntries empty for clean repo'
+)
+
+assertEqual(m.copyValue(st), 'main', 'copyValue returns branch')
+assertEqual(
+  m.copyValue(m.parseStatus('/r\ndetached abc123\nahead 0 behind 0\nstaged 0 modified 0 untracked 0 conflict 0\n')),
+  'abc123',
+  'copyValue returns detached sha'
+)
+assertEqual(m.copyValue(m.parseStatus('')), '', 'copyValue empty outside repo')
+
+assertEqual(m.githubUrlFromRemote('git@github.com:octo/repo.git'), 'https://github.com/octo/repo', 'github ssh form normalized')
+assertEqual(m.githubUrlFromRemote('git@github.com:octo/repo'), 'https://github.com/octo/repo', 'github ssh form without .git')
+assertEqual(m.githubUrlFromRemote('https://github.com/octo/repo.git'), 'https://github.com/octo/repo', 'github https form with .git')
+assertEqual(m.githubUrlFromRemote('https://github.com/octo/repo/'), 'https://github.com/octo/repo', 'github https trailing slash')
+assertEqual(m.githubUrlFromRemote('git@gitlab.com:octo/repo.git'), '', 'gitlab remote rejected')
+assertEqual(m.githubUrlFromRemote('git@bitbucket.org:octo/repo.git'), '', 'bitbucket remote rejected')
+assertEqual(m.githubUrlFromRemote('/srv/git/repo.git'), '', 'local path remote rejected')
+assertEqual(m.githubUrlFromRemote(''), '', 'empty remote rejected')
+assertEqual(m.githubUrlFromRemote('   '), '', 'whitespace remote rejected')
+JS
